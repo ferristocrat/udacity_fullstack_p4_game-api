@@ -9,7 +9,7 @@ handlers:
   static_dir: stylesheets
 
 - url: /.*
-  script: guestbook.app
+  script: hangman.app
 # [END handlers]
 
 # [START libraries]

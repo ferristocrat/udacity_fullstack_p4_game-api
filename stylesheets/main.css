@@ -1,4 +1,8 @@
 body {
   font-family: Verdana, Helvetica, sans-serif;
-  background-color: #DDDDDD;
+}
+
+.guessed-letter {
+	font-size: 2em;
+    background-color: #cdcdcd;
 }

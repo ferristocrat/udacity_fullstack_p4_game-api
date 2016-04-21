@@ -15,15 +15,13 @@ JINJA_ENVIRONMENT = jinja2.Environment(
     autoescape=True)
 # [END imports]
 
-DEFAULT_GUESTBOOK_NAME = 'default_guestbook'
-
 
 # We set a parent key on the 'Greetings' to ensure that they are all
 # in the same entity group. Queries across the single entity group
 # will be consistent. However, the write rate should be limited to
 # ~1/second.
 
-def guestbook_key(guestbook_name=DEFAULT_GUESTBOOK_NAME):
+def guestbook_key(guestbook_name):
     """Constructs a Datastore key for a Guestbook entity.
 
     We use guestbook_name as the key.
@@ -48,27 +46,35 @@ class Greeting(ndb.Model):
 class MainPage(webapp2.RequestHandler):
 
     def get(self):
-        guestbook_name = self.request.get('guestbook_name',
-                                          DEFAULT_GUESTBOOK_NAME)
-        greetings_query = Greeting.query(
-            ancestor=guestbook_key(guestbook_name)).order(-Greeting.date)
-        greetings = greetings_query.fetch(10)
 
         user = users.get_current_user()
+
         if user:
             url = users.create_logout_url(self.request.uri)
             url_linktext = 'Logout'
+            guestbook_name = self.request.get('guestbook_name',
+                                              user.nickname())
+            greetings_query = Greeting.query(
+                ancestor=guestbook_key(guestbook_name)).order(-Greeting.date)
+            greetings = greetings_query.fetch(10)
+
+            template_values = {
+                'user': user,
+                'greetings': greetings,
+                'guestbook_name': urllib.quote_plus(guestbook_name),
+                'url': url,
+                'url_linktext': url_linktext,
+            }
         else:
             url = users.create_login_url(self.request.uri)
             url_linktext = 'Login'
 
-        template_values = {
-            'user': user,
-            'greetings': greetings,
-            'guestbook_name': urllib.quote_plus(guestbook_name),
-            'url': url,
-            'url_linktext': url_linktext,
-        }
+            template_values = {
+                'url': url,
+                'url_linktext': url_linktext,
+            }
+
+
 
         template = JINJA_ENVIRONMENT.get_template('index.html')
         self.response.write(template.render(template_values))
@@ -84,7 +90,7 @@ class Guestbook(webapp2.RequestHandler):
         # rate to a single entity group should be limited to
         # ~1/second.
         guestbook_name = self.request.get('guestbook_name',
-                                          DEFAULT_GUESTBOOK_NAME)
+                                          users.get_current_user().nickname())
         greeting = Greeting(parent=guestbook_key(guestbook_name))
 
         if users.get_current_user():
