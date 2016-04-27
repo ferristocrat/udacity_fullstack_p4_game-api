@@ -10,7 +10,7 @@ indexes:
 # automatically uploaded to the admin console when you next deploy
 # your application using appcfg.py.
 
-- kind: Guesses
-  ancestor: yes
+- kind: Game
   properties:
-  - name: date
+  - name: game_over
+  - name: user

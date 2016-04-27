@@ -1,31 +1,23 @@
-application: p4-lessons
+application: fswd-p4-game-api
 version: 1
 runtime: python27
 api_version: 1
-threadsafe: true
+threadsafe: yes
 
-# [START handlers]
 handlers:
-- url: /stylesheets
-  static_dir: stylesheets
-
-- url: /.*
-  script: hangman.app
-  secure: always
 
 - url: /_ah/spi/.*
-  script: hangman.api
-  secure: always
-# [END handlers]
+  script: api.api
 
-# [START libraries]
+- url: /tasks/cache_average_attempts
+  script: main.app
+
+- url: /crons/send_reminder
+  script: main.app
+
 libraries:
 - name: webapp2
-  version: latest
-
-- name: jinja2
-  version: latest
+  version: "2.5.2"
 
 - name: endpoints
-  version: 1.0
-# [END libraries]
+  version: latest
