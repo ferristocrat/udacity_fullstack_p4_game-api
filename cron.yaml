@@ -1,0 +1,4 @@
+cron:
+- description: Send a reminder email for active games
+  url: /crons/send_reminder
+  schedule: every day 09:00
