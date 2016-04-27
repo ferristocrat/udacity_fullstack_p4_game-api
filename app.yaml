@@ -1,4 +1,5 @@
-application: ferristocrat-hangman
+application: p4-lessons
+version: 1
 runtime: python27
 api_version: 1
 threadsafe: true
@@ -9,13 +10,22 @@ handlers:
   static_dir: stylesheets
 
 - url: /.*
-  script: guestbook.app
+  script: hangman.app
+  secure: always
+
+- url: /_ah/spi/.*
+  script: hangman.api
+  secure: always
 # [END handlers]
 
 # [START libraries]
 libraries:
 - name: webapp2
   version: latest
+
 - name: jinja2
   version: latest
+
+- name: endpoints
+  version: 1.0
 # [END libraries]
