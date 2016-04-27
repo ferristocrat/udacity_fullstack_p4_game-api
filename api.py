@@ -30,7 +30,8 @@ MEMCACHE_MOVES_REMAINING = 'MOVES_REMAINING'
 alphabet = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
             'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
 
-@endpoints.api(name='hangman_api', version='v69')
+
+@endpoints.api(name='hangman_api', version='v1')
 class HangmanApi(remote.Service):
     """Hangman API"""
 
@@ -101,10 +102,11 @@ class HangmanApi(remote.Service):
             return game.to_form('Game already over!')
 
         if len(guess) > 1:
-          return game.to_form('Invalid guess! You can only guess one letter at a time!')
+            return game.to_form('Invalid guess! You can only guess \
+                                one letter at a time!')
 
         if guess not in alphabet:
-          return game.to_form('You need to enter a letter (A-Z)!')
+            return game.to_form('You need to enter a letter (A-Z)!')
 
         letter_list = []
         for m in re.finditer(guess, game.word):
@@ -126,12 +128,11 @@ class HangmanApi(remote.Service):
             if len(correct_letters) == len(word_letters):
                 game.end_game(True)
                 return game.to_form('You win!')
-            else:
 
-              if number_matched > 1:
+            if number_matched > 1:
                 msg = "You guessed correct. There are " + \
                     str(number_matched) + " " + guess + "'s"
-              else:
+            else:
                 msg = "You guessed correct. There is " + \
                     str(number_matched) + " " + guess + "'s"
         else:
@@ -191,17 +192,18 @@ class HangmanApi(remote.Service):
                          'The average moves remaining is {:.2f}'
                          .format(average))
 
-    @endpoints.method(response_message=GameForms,
+    @endpoints.method(request_message=USER_REQUEST,
+                      response_message=GameForms,
                       path='user_games',
                       name='get_user_games',
                       http_method='GET')
     def get_user_games(self, request):
-    """Returns all of a User's games (both active and inactive)."""
+        """Returns all of a User's games (both active and inactive)"""
         user = User.query(User.name == request.user_name).get()
         if not user:
-          raise endpoints.NotFoundException(
-                  'A User with that name does not exist!')
-        games = Game.query(Game.user == user.key)
-        return GameForms(user_games=[game.to_form() for game in games])
+            raise endpoints.NotFoundException(
+                'A User with that name does not exist!')
+            games = Game.query(Game.user == user.key)
+            return GameForms(items=[game.to_form() for game in games])
 
 api = endpoints.api_server([HangmanApi])
