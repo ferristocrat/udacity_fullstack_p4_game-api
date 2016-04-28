@@ -32,7 +32,7 @@ class SendReminderEmail(webapp2.RequestHandler):
 class UpdateAverageMovesRemaining(webapp2.RequestHandler):
     def post(self):
         """Update game listing announcement in memcache."""
-        HangmanApi._cache_average_attempts()
+        HangmanApi.cache_active_games()
         self.response.set_status(204)
 
 

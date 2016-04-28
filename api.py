@@ -4,6 +4,7 @@ This can also contain game logic. For more complex games it would be wise to
 move game logic to another file. Ideally the API will be simple, concerned
 primarily with communication to/from the API's users."""
 
+import operator
 import re
 import logging
 import endpoints
@@ -13,7 +14,7 @@ from google.appengine.api import taskqueue
 
 from models import User, Game, Score
 from models import StringMessage, NewGameForm, GameForm, GameForms, \
-    MakeMoveForm, ScoreForms
+    MakeMoveForm, ScoreForm, ScoreForms, UserForm, UserForms
 from utils import get_by_urlsafe
 
 NEW_GAME_REQUEST = endpoints.ResourceContainer(NewGameForm)
@@ -25,12 +26,13 @@ MAKE_MOVE_REQUEST = endpoints.ResourceContainer(
 USER_REQUEST = endpoints.ResourceContainer(user_name=messages.StringField(1),
                                            email=messages.StringField(2))
 
-MEMCACHE_MOVES_REMAINING = 'MOVES_REMAINING'
+MEMCACHE_GAMES_ACTIVE = 'GAMES_ACTIVE'
 
 alphabet = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
             'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
 
-@endpoints.api(name='hangman_api', version='v69')
+
+@endpoints.api(name='hangman_api', version='v1')
 class HangmanApi(remote.Service):
     """Hangman API"""
 
@@ -83,6 +85,8 @@ class HangmanApi(remote.Service):
         if game:
             if game.game_over:
                 return game.to_form('The game is already over!')
+            elif game.cancelled:
+                return game.to_form('This game was cancelled!')
             else:
                 return game.to_form('Time to make a move!')
         else:
@@ -100,11 +104,15 @@ class HangmanApi(remote.Service):
         if game.game_over:
             return game.to_form('Game already over!')
 
+        if game.cancelled:
+            return game.to_form('This game was cancelled!')
+
         if len(guess) > 1:
-          return game.to_form('Invalid guess! You can only guess one letter at a time!')
+            return game.to_form('Invalid guess! You can only guess \
+                                one letter at a time!')
 
         if guess not in alphabet:
-          return game.to_form('You need to enter a letter (A-Z)!')
+            return game.to_form('You need to enter a letter (A-Z)!')
 
         letter_list = []
         for m in re.finditer(guess, game.word):
@@ -125,13 +133,31 @@ class HangmanApi(remote.Service):
             word_letters = set(game.word)
             if len(correct_letters) == len(word_letters):
                 game.end_game(True)
-                return game.to_form('You win!')
-            else:
 
-              if number_matched > 1:
+                rankings = {}
+                users = User.query().fetch()
+                for user in users:
+                    scores = Score.query(Score.user == user.key)
+                    number_of_games = scores.count()
+                    total_guesses = 0
+                    for score in scores:
+                        total_guesses += score.guesses
+                    rankings[user.key] = (total_guesses/number_of_games)
+                sorted_rankings = sorted(rankings.items(), key=operator.itemgetter(1))
+                for index, item in enumerate(sorted_rankings):
+                    rankings[sorted_rankings[index][0]] = index + 1
+                for user in users:
+                    for rank in rankings:
+                        if user.key == rank:
+                            user.ranking = rankings[rank]
+                            user.put()
+
+                return game.to_form('You win!')
+
+            if number_matched > 1:
                 msg = "You guessed correct. There are " + \
                     str(number_matched) + " " + guess + "'s"
-              else:
+            else:
                 msg = "You guessed correct. There is " + \
                     str(number_matched) + " " + guess + "'s"
         else:
@@ -142,6 +168,24 @@ class HangmanApi(remote.Service):
 
         if game.attempts_remaining < 1:
             game.end_game(False)
+            rankings = {}
+            users = User.query().fetch()
+            for user in users:
+                scores = Score.query(Score.user == user.key)
+                number_of_games = scores.count()
+                total_guesses = 0
+                for score in scores:
+                    total_guesses += score.guesses
+                rankings[user.key] = (total_guesses/number_of_games)
+            sorted_rankings = sorted(rankings.items(), key=operator.itemgetter(1))
+            for index, item in enumerate(sorted_rankings):
+                rankings[sorted_rankings[index][0]] = index + 1
+            for user in users:
+                for rank in rankings:
+                    if user.key == rank:
+                        user.ranking = rankings[rank]
+                        user.put()
+
             return game.to_form(msg + ' Game over!')
         else:
             game.put()
@@ -169,39 +213,79 @@ class HangmanApi(remote.Service):
         scores = Score.query(Score.user == user.key)
         return ScoreForms(items=[score.to_form() for score in scores])
 
-    @endpoints.method(response_message=StringMessage,
-                      path='games/average_attempts',
-                      name='get_average_attempts_remaining',
-                      http_method='GET')
-    def get_average_attempts(self, request):
-        """Get the cached average moves remaining"""
-        return StringMessage(message=memcache.get(MEMCACHE_MOVES_REMAINING) or
-                             '')
 
-    @staticmethod
-    def _cache_average_attempts():
-        """Populates memcache with the average moves remaining of Games"""
-        games = Game.query(Game.game_over is False).fetch()
-        if games:
-            count = len(games)
-            total_attempts_remaining = sum([game.attempts_remaining
-                                            for game in games])
-            average = float(total_attempts_remaining)/count
-            memcache.set(MEMCACHE_MOVES_REMAINING,
-                         'The average moves remaining is {:.2f}'
-                         .format(average))
-
-    @endpoints.method(response_message=GameForms,
-                      path='user_games',
+    @endpoints.method(request_message=USER_REQUEST,
+                      response_message=GameForms,
+                      path='games/user/{user_name}',
                       name='get_user_games',
                       http_method='GET')
     def get_user_games(self, request):
-    """Returns all of a User's games (both active and inactive)."""
+        """Returns all of a User's games (both active and inactive)"""
         user = User.query(User.name == request.user_name).get()
         if not user:
-          raise endpoints.NotFoundException(
-                  'A User with that name does not exist!')
+            raise endpoints.NotFoundException(
+                'A User with that name does not exist!')
         games = Game.query(Game.user == user.key)
-        return GameForms(user_games=[game.to_form() for game in games])
+        null_message = None
+        return GameForms(games=[game.to_form(null_message) for game in games])
+
+    @endpoints.method(request_message=GET_GAME_REQUEST,
+                      response_message=GameForm,
+                      path='game/{urlsafe_game_key}/cancel',
+                      name='cancel_game',
+                      http_method='PUT')
+    def cancel_game(self, request):
+        """Cancel's the game"""
+        game = get_by_urlsafe(request.urlsafe_game_key, Game)
+        if game:
+            if game.game_over:
+                return game.to_form('The game is already over, and cannot be deleted')
+            else:
+                game.cancel_game()
+                game.put()
+                return game.to_form("Game has been cancelled!")
+        else:
+            raise endpoints.NotFoundException('Game not found!')
+
+    @endpoints.method(request_message=endpoints.ResourceContainer(number_of_records=messages.IntegerField(1, default=3)),
+                      response_message=ScoreForms,
+                      path='highscores',
+                      name='get_high_scores',
+                      http_method='GET')
+    def get_high_scores(self, request):
+        """Return high scores"""
+        scores = Score.query(Score.won == True).order(Score.guesses).fetch(request.number_of_records)
+        return ScoreForms(items=[score.to_form() for score in scores])
+
+    @endpoints.method(response_message=UserForms,
+                      path='rankings',
+                      name='get_user_rankings',
+                      http_method='GET')
+    def get_user_rankings(self, request):
+        """Return a list of ranked players scores"""
+        users = User.query().order(User.ranking).fetch()
+        return UserForms(rankings=[user.to_form() for user in users])
+
+
+    @staticmethod
+    def cache_active_games():
+        """Populates memcache with the average moves remaining of Games"""
+        games = Game.query().fetch()
+        if games:
+            count_games = games.count()
+            memcache.set(MEMCACHE_GAMES_ACTIVE,
+                         'The number of active games is {:.2f}'
+                         .format(count_games))
+
+
+    @endpoints.method(response_message=StringMessage,
+                      path='games/average_attempts',
+                      name='get_active_game_count',
+                      http_method='GET')
+    def get_active_game_count(self, request):
+        """Get the cached number of active games"""
+        return StringMessage(message=memcache.get(MEMCACHE_GAMES_ACTIVE) or
+                             'There are no active games at the moment')
+
 
 api = endpoints.api_server([HangmanApi])
