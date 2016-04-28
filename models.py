@@ -13,6 +13,27 @@ class User(ndb.Model):
     """User profile"""
     name = ndb.StringProperty(required=True)
     email = ndb.StringProperty()
+    ranking = ndb.IntegerProperty(default=None)
+
+    def to_form(self):
+        """Returns a UserForm representation of the User"""
+        form = UserForm()
+        form.urlsafe_key = self.key.urlsafe()
+        form.user_name = self.name
+        form.ranking = self.ranking
+        return form
+
+
+class UserForm(messages.Message):
+    """UserForm for outbound user ranking information"""
+    urlsafe_key = messages.StringField(1, required=True)
+    user_name = messages.StringField(2, required=True)
+    ranking = messages.IntegerField(3, required=True)
+
+
+class UserForms(messages.Message):
+    """Return multiple UserForms"""
+    rankings = messages.MessageField(UserForm, 1, repeated=True)
 
 
 class Game(ndb.Model):
@@ -25,6 +46,7 @@ class Game(ndb.Model):
     letters_guessed_correct = ndb.StringProperty(repeated=True)
     letters_guessed_wrong = ndb.StringProperty(repeated=True)
     user = ndb.KeyProperty(required=True, kind='User')
+    cancelled = ndb.BooleanProperty(required=True, default=False)
 
     def add_correct_guess(self, value):
         """Adds the guess to letters_guessed_correct"""
@@ -34,6 +56,10 @@ class Game(ndb.Model):
     def add_wrong_guess(self, value):
         """Adds the guess to letters_guessed_wrong"""
         self.letters_guessed_wrong.append(value)
+        self.put()
+
+    def cancel_game(self):
+        self.cancelled = True
         self.put()
 
     @classmethod
@@ -60,7 +86,9 @@ class Game(ndb.Model):
         form.user_name = self.user.get().name
         form.attempts_remaining = self.attempts_remaining
         form.game_over = self.game_over
-        form.message = message
+        form.cancelled = self.cancelled
+        if message:
+            form.message = message
         return form
 
     def end_game(self, won=False):
@@ -74,30 +102,19 @@ class Game(ndb.Model):
         score.put()
 
 
-class Score(ndb.Model):
-    """Score object"""
-    user = ndb.KeyProperty(required=True, kind='User')
-    date = ndb.DateProperty(required=True)
-    won = ndb.BooleanProperty(required=True)
-    guesses = ndb.IntegerProperty(required=True)
-
-    def to_form(self):
-        return ScoreForm(user_name=self.user.get().name, won=self.won,
-                         date=str(self.date), guesses=self.guesses)
-
-
 class GameForm(messages.Message):
     """GameForm for outbound game state information"""
     urlsafe_key = messages.StringField(1, required=True)
     attempts_remaining = messages.IntegerField(2, required=True)
     game_over = messages.BooleanField(3, required=True)
-    message = messages.StringField(4, required=True)
+    message = messages.StringField(4, required=False)
     user_name = messages.StringField(5, required=True)
+    cancelled = messages.BooleanField(6, required=False)
 
 
 class GameForms(messages.Message):
     """Return multiple GameForms"""
-    items = messages.MessageField(GameForm, 1, repeated=True)
+    games = messages.MessageField(GameForm, 1, repeated=True)
 
 
 class NewGameForm(messages.Message):
@@ -109,6 +126,18 @@ class NewGameForm(messages.Message):
 class MakeMoveForm(messages.Message):
     """Used to make a move in an existing game"""
     guess = messages.StringField(1, required=True)
+
+
+class Score(ndb.Model):
+    """Score object"""
+    user = ndb.KeyProperty(required=True, kind='User')
+    date = ndb.DateProperty(required=True)
+    won = ndb.BooleanProperty(required=True)
+    guesses = ndb.IntegerProperty(required=True)
+
+    def to_form(self):
+        return ScoreForm(user_name=self.user.get().name, won=self.won,
+                         date=str(self.date), guesses=self.guesses)
 
 
 class ScoreForm(messages.Message):
